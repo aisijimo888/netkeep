@@ -31,7 +31,8 @@ NetKeep是一个自动化工具，用于定期登录和续期各种网站账号�
 3. 创建配置文件
    - 复制`config.json.example`为`config.json`：`cp config.json.example config.json`
    - 编辑`config.json`，添加你的账号信息
-   - 脚本会自动根据`config.json`生成`.env`文件
+   - 复制`.env.example`为`.env`：`cp .env.example .env`
+   - 脚本会自动根据`config.json`生成`.env`文件中的配置
 
 4. 运行脚本
    ```bash
@@ -77,7 +78,8 @@ NetKeep是一个自动化工具，用于定期登录和续期各种网站账号�
    cp config.json.example config.json
    # 编辑config.json添加你的账号信息
    nano config.json
-   # 脚本会自动根据config.json生成.env文件
+   cp .env.example .env
+   # 脚本会自动根据config.json生成.env文件中的配置
    ```
 
 3. 设置定时任务
@@ -153,11 +155,13 @@ NetKeep是一个自动化工具，用于定期登录和续期各种网站账号�
    - 与@userinfobot聊天，获取你的chat_id
    - 或者创建一个群组，将机器人添加为管理员，获取群组chat_id
 
-3. 在`.env`文件或GitHub Secrets中设置：
+3. 在`.env`文件中取消注释并填写Telegram配置，或在GitHub Secrets中设置：
    ```
    TELEGRAM_BOT_TOKEN=your_bot_token
    TELEGRAM_CHAT_ID=your_chat_id
    ```
+
+   > **注意**：`.env`文件由脚本自动生成，包含敏感信息，不应上传到GitHub。该文件已被添加到`.gitignore`中。
 
 ## 安全建议
 

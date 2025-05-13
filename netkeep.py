@@ -10,32 +10,75 @@ def process_config_file():
     """从分段的配置文件生成单行JSON格式的配置文件"""
     config_path = 'config.json'
     env_path = '.env'
-    # 打印环境变量，用于调试
-    print("环境变量DEBUG_MODE:", os.environ.get('DEBUG_MODE', '未设置'))
+    env_example_path = '.env.example'
     print("环境变量NETKEEP_ACCOUNTS:", os.environ.get('NETKEEP_ACCOUNTS', '未设置'))
 
     # 检查是否存在config.json文件
     if os.path.exists(config_path):
         try:
-            # 读取分段的JSON配置
+            # 读取config.json文件内容
             with open(config_path, 'r', encoding='utf-8') as f:
-                config_data = json.load(f)
+                config_content = f.read()
 
-            # 将配置写入.env文件
-            with open(env_path, 'r', encoding='utf-8') as f:
-                env_content = f.read()
-
-            # 查找NETKEEP_ACCOUNTS行并替换
+            # 提取Telegram配置
             import re
-            pattern = r'NETKEEP_ACCOUNTS=\[.*?\]'
-            compact_json = json.dumps(config_data, ensure_ascii=False, separators=(',', ':'))
-            new_env_content = re.sub(pattern, f'NETKEEP_ACCOUNTS={compact_json}', env_content, flags=re.DOTALL)
+            telegram_bot_token = None
+            telegram_chat_id = None
 
-            # 写入新的.env文件
-            with open(env_path, 'w', encoding='utf-8') as f:
-                f.write(new_env_content)
+            # 匹配Telegram配置
+            bot_token_match = re.search(r'TELEGRAM_BOT_TOKEN=(.*?)$', config_content, re.MULTILINE)
+            chat_id_match = re.search(r'TELEGRAM_CHAT_ID=(.*?)$', config_content, re.MULTILINE)
 
-            print("已从config.json生成配置")
+            if bot_token_match:
+                telegram_bot_token = bot_token_match.group(1).strip()
+            if chat_id_match:
+                telegram_chat_id = chat_id_match.group(1).strip()
+
+            # 提取FREECLOUD_ACCOUNTS或NETKEEP_ACCOUNTS数组
+            accounts_match = re.search(r'(?:FREECLOUD_ACCOUNTS|NETKEEP_ACCOUNTS)=(\[.*?\])$', config_content, re.DOTALL | re.MULTILINE)
+            accounts_data = []
+
+            if accounts_match:
+                try:
+                    accounts_json = accounts_match.group(1)
+                    accounts_data = json.loads(accounts_json)
+                except json.JSONDecodeError:
+                    print("无法解析账号数据，请检查config.json中的账号格式")
+
+            # 确保.env文件存在，如果不存在则从.env.example创建
+            if not os.path.exists(env_path) and os.path.exists(env_example_path):
+                with open(env_example_path, 'r', encoding='utf-8') as f:
+                    env_example_content = f.read()
+                with open(env_path, 'w', encoding='utf-8') as f:
+                    f.write(env_example_content)
+                print("已从.env.example创建.env文件")
+
+            # 读取.env文件内容
+            if os.path.exists(env_path):
+                with open(env_path, 'r', encoding='utf-8') as f:
+                    env_content = f.read()
+
+                # 更新NETKEEP_ACCOUNTS
+                pattern_accounts = r'NETKEEP_ACCOUNTS=\[.*?\]'
+                compact_json = json.dumps(accounts_data, ensure_ascii=False, separators=(',', ':'))
+                new_env_content = re.sub(pattern_accounts, f'NETKEEP_ACCOUNTS={compact_json}', env_content, flags=re.DOTALL)
+
+                # 更新Telegram配置
+                if telegram_bot_token:
+                    pattern_bot_token = r'#?\s*TELEGRAM_BOT_TOKEN=.*?$'
+                    new_env_content = re.sub(pattern_bot_token, f'TELEGRAM_BOT_TOKEN={telegram_bot_token}', new_env_content, flags=re.MULTILINE)
+
+                if telegram_chat_id:
+                    pattern_chat_id = r'#?\s*TELEGRAM_CHAT_ID=.*?$'
+                    new_env_content = re.sub(pattern_chat_id, f'TELEGRAM_CHAT_ID={telegram_chat_id}', new_env_content, flags=re.MULTILINE)
+
+                # 写入新的.env文件
+                with open(env_path, 'w', encoding='utf-8') as f:
+                    f.write(new_env_content)
+
+                print("已从config.json生成配置")
+            else:
+                print("未找到.env文件，无法更新配置")
         except Exception as e:
             print(f"处理配置文件时出错: {str(e)}")
 
@@ -46,21 +89,14 @@ load_dotenv(override=True)  # 使用override=True强制重新加载.env文件
 
 def send_telegram_message(message):
     """发送Telegram通知，如果配置缺失则只打印消息"""
-    # 本地调试模式下，只打印消息，不发送Telegram通知
-    debug_mode = os.environ.get('DEBUG_MODE', 'false').lower() == 'true'
-
     # 检查Telegram配置是否存在
     bot_token = os.environ.get('TELEGRAM_BOT_TOKEN')
     chat_id = os.environ.get('TELEGRAM_CHAT_ID')
 
-    # 如果是调试模式或Telegram配置缺失，只打印消息
-    if debug_mode or not (bot_token and chat_id):
-        if debug_mode:
-            print("调试模式: 跳过Telegram通知")
-        elif not (bot_token and chat_id):
-            print("Telegram配置缺失: 跳过Telegram通知")
-
-        # 无论是哪种情况，都打印消息内容
+    # 如果Telegram配置缺失，只打印消息
+    if not (bot_token and chat_id):
+        print("Telegram配置缺失: 跳过Telegram通知")
+        # 打印消息内容
         print(f"消息内容:\n{message}")
         return {"ok": True, "result": {"message_id": 0}}
 
@@ -249,46 +285,7 @@ def main():
         else:
             print(f"账号 {i+1}: {account['username']} ({site_name}), 仅登录, 不需要续期")
 
-    # 本地调试模式，允许手动输入账号信息
-    debug_mode = os.environ.get('DEBUG_MODE', 'false').lower() == 'true'
-    if debug_mode and not accounts:
-        # 如果环境变量中没有账号信息，则提示用户手动输入
-        print("环境变量中未找到账号信息，请手动输入：")
-        accounts = []
-        num_accounts = int(input("请输入要添加的账号数量: "))
 
-        for i in range(num_accounts):
-            # 输入基本信息
-            site = input(f"请输入账号 {i+1} 的网站地址 (默认: https://freecloud.ltd): ").strip()
-            if not site:
-                site = "https://freecloud.ltd"
-
-            login_api = input(f"请输入账号 {i+1} 的登录API (默认: /login): ").strip()
-            if not login_api:
-                login_api = "/login"
-
-            username = input(f"请输入账号 {i+1} 的用户名: ")
-            password = input(f"请输入账号 {i+1} 的密码: ")
-
-            account = {
-                "site": site,
-                "loginApi": login_api,
-                "username": username,
-                "password": password
-            }
-
-            # 询问是否需要获取Cookie (只有在需要续期时才询问)
-            # 这部分是可选的，因为我们已经根据renewApi自动决定是否需要获取Cookie
-            # 但保留这个选项，以便用户可以手动覆盖默认行为
-
-            # 询问是否需要续期
-            need_renew = input(f"账号 {i+1} 是否需要续期? (y/n, 默认: n): ").lower().strip()
-            if need_renew == 'y' or need_renew == 'yes':
-                renew_api = input(f"请输入账号 {i+1} 的续期API (例如: /server/detail/1707/renew): ")
-                if renew_api:
-                    account["renewApi"] = renew_api
-
-            accounts.append(account)
 
     if not accounts:
         print("NETKEEP_ACCOUNTS 或 FREECLOUD_ACCOUNTS 环境变量中未配置任何账号")
