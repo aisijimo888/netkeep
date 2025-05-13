@@ -1,0 +1,42 @@
+name: NetKeep自动登录
+
+on:
+  schedule:
+    - cron: '0 0 */2 * *'  # 每48小时执行一次，在UTC时间0点运行
+  workflow_dispatch:  # 允许手动触发工作流
+
+jobs:
+  login:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: 检出代码
+      uses: actions/checkout@v3
+
+    - name: 设置Python环境
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.10'
+
+    - name: 安装依赖
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+        python -m playwright install chromium
+
+    - name: 运行NetKeep脚本
+      env:
+        # 从GitHub仓库的Variables或Secrets中获取配置
+        FREECLOUD_ACCOUNTS: ${{ vars.FREECLOUD_ACCOUNTS || secrets.FREECLOUD_ACCOUNTS }}
+        # Telegram通知配置（可选）
+        TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+        TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        # 设置为非调试模式
+        DEBUG_MODE: false
+      run: |
+        python netkeep.py
+
+    - name: 处理运行结果
+      if: always()  # 无论前一步是否成功都执行
+      run: |
+        echo "脚本执行完成，查看上方日志获取详细信息"
