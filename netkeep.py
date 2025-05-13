@@ -442,22 +442,81 @@ def main():
                         raise Exception("需要续期但未获取到Cookie")
 
                     print(f"账号 {account['username']} 配置了续期API，执行续期操作...")
-                    result = renew_vps(account, context, cookie, cf_clearance_cookie)
 
-                    # 尝试解析JSON并将Unicode转换为中文
+                    # 使用Playwright的内置请求功能发送续期请求
                     try:
-                        result_json = json.loads(result)
-                        if 'msg' in result_json:
-                            # 确保Unicode已经被正确解码为中文
-                            result_json['msg'] = result_json['msg']
-                            result_readable = json.dumps(result_json, ensure_ascii=False)
-                        else:
-                            result_readable = result
-                    except:
-                        result_readable = result
+                        result = renew_vps(account, context, cookie, cf_clearance_cookie)
 
-                    renew_statuses.append(f"账号 {account['username']} ({site_name}) 续期成功: {result_readable}")
-                    print(f"账号 {account['username']} 续期完成")
+                        # 尝试解析JSON并将Unicode转换为中文
+                        try:
+                            result_json = json.loads(result)
+                            if 'msg' in result_json:
+                                # 确保Unicode已经被正确解码为中文
+                                result_json['msg'] = result_json['msg']
+                                result_readable = json.dumps(result_json, ensure_ascii=False)
+                            else:
+                                result_readable = result
+                        except:
+                            result_readable = result
+
+                        renew_statuses.append(f"账号 {account['username']} ({site_name}) 续期成功: {result_readable}")
+                        print(f"账号 {account['username']} 续期完成")
+                    except Exception as e:
+                        print(f"使用Playwright续期失败: {str(e)}")
+                        print("尝试使用备用方法续期...")
+
+                        # 如果Playwright方法失败，尝试使用备用方法
+                        try:
+                            # 构建续期URL
+                            renew_url = f"{account['site']}{account['renewApi']}"
+
+                            # 设置请求头
+                            headers = {
+                                'Cookie': cookie,
+                                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+                                'Referer': f"{account['site']}/server/lxc",
+                                'Accept': 'application/json, text/javascript, */*; q=0.01',
+                                'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
+                                'X-Requested-With': 'XMLHttpRequest',
+                                'Origin': account['site'],
+                                'Connection': 'keep-alive',
+                                'Sec-Fetch-Dest': 'empty',
+                                'Sec-Fetch-Mode': 'cors',
+                                'Sec-Fetch-Site': 'same-origin',
+                                'Pragma': 'no-cache',
+                                'Cache-Control': 'no-cache'
+                            }
+
+                            # 如果有cf_clearance_cookie，添加到Cookie中
+                            if cf_clearance_cookie:
+                                headers['Cookie'] += f"; cf_clearance={cf_clearance_cookie['value']}"
+
+                            # 发送续期请求
+                            response = requests.get(renew_url, headers=headers)
+
+                            # 检查响应状态码
+                            if response.status_code == 200:
+                                result = response.text
+
+                                # 尝试解析JSON并将Unicode转换为中文
+                                try:
+                                    result_json = json.loads(result)
+                                    if 'msg' in result_json:
+                                        # 确保Unicode已经被正确解码为中文
+                                        result_json['msg'] = result_json['msg']
+                                        result_readable = json.dumps(result_json, ensure_ascii=False)
+                                    else:
+                                        result_readable = result
+                                except:
+                                    result_readable = result
+
+                                renew_statuses.append(f"账号 {account['username']} ({site_name}) 续期成功: {result_readable}")
+                                print(f"账号 {account['username']} 续期完成")
+                            else:
+                                raise Exception(f"续期请求失败，状态码: {response.status_code}")
+                        except Exception as e2:
+                            print(f"备用续期方法也失败: {str(e2)}")
+                            raise Exception(f"所有续期方法都失败: {str(e)}, {str(e2)}")
                 else:
                     print(f"账号 {account['username']} 未配置续期API，仅执行登录操作")
                     renew_statuses.append(f"账号 {account['username']} ({site_name}) 仅执行登录，未进行续期")
