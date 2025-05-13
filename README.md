@@ -18,7 +18,7 @@ NetKeep是一个自动化工具，用于定期登录和续期各种网站账号�
 
 1. 克隆仓库
    ```bash
-   git clone https://github.com/yourusername/netkeep.git
+   git clone https://github.com/mqiancheng/netkeep.git
    cd netkeep
    ```
 
