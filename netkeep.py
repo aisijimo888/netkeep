@@ -42,8 +42,37 @@ def process_config_file():
                 try:
                     accounts_json = accounts_match.group(1)
                     accounts_data = json.loads(accounts_json)
-                except json.JSONDecodeError:
-                    print("无法解析账号数据，请检查config.json中的账号格式")
+                except json.JSONDecodeError as e:
+                    print(f"无法解析账号数据，错误: {str(e)}")
+                    # 尝试提取所有JSON对象
+                    try:
+                        pattern = r'({[^{}]*"site"[^{}]*"loginApi"[^{}]*})'
+                        matches = re.findall(pattern, accounts_json, re.DOTALL)
+
+                        if matches:
+                            # 将提取的对象组合成一个数组
+                            fixed_json = '[' + ','.join(matches) + ']'
+                            accounts_data = json.loads(fixed_json)
+                            print(f"成功从config.json中提取了 {len(accounts_data)} 个账号")
+                        else:
+                            print("无法从config.json中提取账号信息")
+                    except Exception as e:
+                        print(f"提取JSON对象失败: {str(e)}")
+            else:
+                # 如果没有找到NETKEEP_ACCOUNTS或FREECLOUD_ACCOUNTS变量，尝试直接提取JSON对象
+                try:
+                    pattern = r'({[^{}]*"site"[^{}]*"loginApi"[^{}]*})'
+                    matches = re.findall(pattern, config_content, re.DOTALL)
+
+                    if matches:
+                        # 将提取的对象组合成一个数组
+                        fixed_json = '[' + ','.join(matches) + ']'
+                        accounts_data = json.loads(fixed_json)
+                        print(f"成功从config.json中直接提取了 {len(accounts_data)} 个账号")
+                    else:
+                        print("无法从config.json中提取账号信息")
+                except Exception as e:
+                    print(f"直接提取JSON对象失败: {str(e)}")
 
             # 确保.env文件存在，如果不存在则从.env.example创建
             if not os.path.exists(env_path) and os.path.exists(env_example_path):
@@ -52,6 +81,21 @@ def process_config_file():
                 with open(env_path, 'w', encoding='utf-8') as f:
                     f.write(env_example_content)
                 print("已从.env.example创建.env文件")
+            elif not os.path.exists(env_path) and not os.path.exists(env_example_path):
+                # 如果.env和.env.example都不存在，创建一个基本的.env文件
+                basic_env_content = """# NetKeep配置文件
+# 自动生成的.env文件
+
+# 账号信息（JSON格式）
+NETKEEP_ACCOUNTS=[]
+
+# Telegram通知配置
+# TELEGRAM_BOT_TOKEN=your_bot_token
+# TELEGRAM_CHAT_ID=your_chat_id
+"""
+                with open(env_path, 'w', encoding='utf-8') as f:
+                    f.write(basic_env_content)
+                print("已创建基本的.env文件")
 
             # 读取.env文件内容
             if os.path.exists(env_path):
@@ -61,22 +105,40 @@ def process_config_file():
                 # 更新NETKEEP_ACCOUNTS
                 pattern_accounts = r'NETKEEP_ACCOUNTS=\[.*?\]'
                 compact_json = json.dumps(accounts_data, ensure_ascii=False, separators=(',', ':'))
-                new_env_content = re.sub(pattern_accounts, f'NETKEEP_ACCOUNTS={compact_json}', env_content, flags=re.DOTALL)
+
+                if re.search(pattern_accounts, env_content, re.DOTALL):
+                    new_env_content = re.sub(pattern_accounts, f'NETKEEP_ACCOUNTS={compact_json}', env_content, flags=re.DOTALL)
+                else:
+                    # 如果没有找到NETKEEP_ACCOUNTS行，添加一个
+                    new_env_content = env_content + f"\nNETKEEP_ACCOUNTS={compact_json}\n"
 
                 # 更新Telegram配置
                 if telegram_bot_token:
                     pattern_bot_token = r'#?\s*TELEGRAM_BOT_TOKEN=.*?$'
-                    new_env_content = re.sub(pattern_bot_token, f'TELEGRAM_BOT_TOKEN={telegram_bot_token}', new_env_content, flags=re.MULTILINE)
+                    if re.search(pattern_bot_token, new_env_content, re.MULTILINE):
+                        new_env_content = re.sub(pattern_bot_token, f'TELEGRAM_BOT_TOKEN={telegram_bot_token}', new_env_content, flags=re.MULTILINE)
+                    else:
+                        new_env_content += f"\nTELEGRAM_BOT_TOKEN={telegram_bot_token}\n"
 
                 if telegram_chat_id:
                     pattern_chat_id = r'#?\s*TELEGRAM_CHAT_ID=.*?$'
-                    new_env_content = re.sub(pattern_chat_id, f'TELEGRAM_CHAT_ID={telegram_chat_id}', new_env_content, flags=re.MULTILINE)
+                    if re.search(pattern_chat_id, new_env_content, re.MULTILINE):
+                        new_env_content = re.sub(pattern_chat_id, f'TELEGRAM_CHAT_ID={telegram_chat_id}', new_env_content, flags=re.MULTILINE)
+                    else:
+                        new_env_content += f"\nTELEGRAM_CHAT_ID={telegram_chat_id}\n"
 
                 # 写入新的.env文件
                 with open(env_path, 'w', encoding='utf-8') as f:
                     f.write(new_env_content)
 
                 print("已从config.json生成配置")
+
+                # 将账号信息设置到环境变量中，以便main函数可以直接使用
+                os.environ['NETKEEP_ACCOUNTS'] = compact_json
+                if telegram_bot_token:
+                    os.environ['TELEGRAM_BOT_TOKEN'] = telegram_bot_token
+                if telegram_chat_id:
+                    os.environ['TELEGRAM_CHAT_ID'] = telegram_chat_id
             else:
                 print("未找到.env文件，无法更新配置")
         except Exception as e:
@@ -258,7 +320,48 @@ def main():
     # 从环境变量加载账号信息
     # 兼容旧的FREECLOUD_ACCOUNTS变量名
     netkeep_accounts_env = os.environ.get('NETKEEP_ACCOUNTS', os.environ.get('FREECLOUD_ACCOUNTS', '[]'))
-    accounts = json.loads(netkeep_accounts_env)
+
+    # 打印原始环境变量值，用于调试
+    print("原始NETKEEP_ACCOUNTS环境变量值:", netkeep_accounts_env)
+
+    try:
+        # 尝试直接解析JSON
+        accounts = json.loads(netkeep_accounts_env)
+    except json.JSONDecodeError as e:
+        print(f"JSON解析错误: {str(e)}")
+        print("尝试修复JSON格式...")
+
+        # 检查是否是不完整的JSON数组
+        if not netkeep_accounts_env.strip().startswith('['):
+            # 如果不是以[开头，尝试添加[]
+            try:
+                # 尝试将内容包装在[]中
+                fixed_json = '[' + netkeep_accounts_env.strip() + ']'
+                accounts = json.loads(fixed_json)
+                print("成功修复JSON格式")
+            except json.JSONDecodeError:
+                # 如果仍然失败，尝试使用正则表达式提取JSON对象
+                import re
+                try:
+                    # 尝试提取所有JSON对象
+                    pattern = r'({[^{}]*"site"[^{}]*"loginApi"[^{}]*})'
+                    matches = re.findall(pattern, netkeep_accounts_env, re.DOTALL)
+
+                    if matches:
+                        # 将提取的对象组合成一个数组
+                        accounts_json = '[' + ','.join(matches) + ']'
+                        accounts = json.loads(accounts_json)
+                        print(f"成功从环境变量中提取了 {len(accounts)} 个账号")
+                    else:
+                        print("无法从环境变量中提取账号信息")
+                        accounts = []
+                except Exception as e:
+                    print(f"提取JSON对象失败: {str(e)}")
+                    accounts = []
+        else:
+            # 如果已经是以[开头，可能是其他JSON格式问题
+            print("环境变量格式不正确，无法解析")
+            accounts = []
 
     # 打印读取到的账号信息
     print("\n读取到的账号信息:")
