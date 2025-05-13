@@ -27,7 +27,7 @@ jobs:
     - name: 运行NetKeep脚本
       env:
         # 从GitHub仓库的Variables或Secrets中获取配置
-        FREECLOUD_ACCOUNTS: ${{ vars.FREECLOUD_ACCOUNTS || secrets.FREECLOUD_ACCOUNTS }}
+        NETKEEP_ACCOUNTS: ${{ vars.NETKEEP_ACCOUNTS || secrets.NETKEEP_ACCOUNTS }}
         # Telegram通知配置（可选）
         TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
         TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
