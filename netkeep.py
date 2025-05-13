@@ -22,11 +22,11 @@ def process_config_file():
             with open(env_path, 'r', encoding='utf-8') as f:
                 env_content = f.read()
 
-            # 查找FREECLOUD_ACCOUNTS行并替换
+            # 查找NETKEEP_ACCOUNTS行并替换
             import re
-            pattern = r'FREECLOUD_ACCOUNTS=\[.*?\]'
+            pattern = r'NETKEEP_ACCOUNTS=\[.*?\]'
             compact_json = json.dumps(config_data, ensure_ascii=False, separators=(',', ':'))
-            new_env_content = re.sub(pattern, f'FREECLOUD_ACCOUNTS={compact_json}', env_content, flags=re.DOTALL)
+            new_env_content = re.sub(pattern, f'NETKEEP_ACCOUNTS={compact_json}', env_content, flags=re.DOTALL)
 
             # 写入新的.env文件
             with open(env_path, 'w', encoding='utf-8') as f:
@@ -217,8 +217,8 @@ def renew_vps(account, context, cookie, cf_clearance_cookie=None, max_retries=3)
 
 def main():
     # 从环境变量加载账号信息
-    freecloud_accounts_env = os.environ.get('FREECLOUD_ACCOUNTS', '[]')
-    accounts = json.loads(freecloud_accounts_env)
+    netkeep_accounts_env = os.environ.get('NETKEEP_ACCOUNTS', '[]')
+    accounts = json.loads(netkeep_accounts_env)
 
     # 打印读取到的账号信息
     print("\n读取到的账号信息:")
@@ -287,8 +287,8 @@ def main():
             accounts.append(account)
 
     if not accounts:
-        print("FREECLOUD_ACCOUNTS 环境变量中未配置任何账号")
-        send_telegram_message("Freecloud 续期失败: 没有配置任何账号")
+        print("NETKEEP_ACCOUNTS 环境变量中未配置任何账号")
+        send_telegram_message("NetKeep 续期失败: 没有配置任何账号")
         return
 
     login_statuses = []
@@ -397,7 +397,7 @@ def main():
                 print("等待5秒，确保资源完全释放...")
                 time.sleep(5)
 
-    message = "Freecloud 登录与续期状态:\n\n" + "\n".join(login_statuses) + "\n\n" + "\n".join(renew_statuses)
+    message = "NetKeep 登录与续期状态:\n\n" + "\n".join(login_statuses) + "\n\n" + "\n".join(renew_statuses)
     send_telegram_message(message)
     print("执行完成")
 
