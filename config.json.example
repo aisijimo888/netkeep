@@ -1,0 +1,22 @@
+[
+  {
+    "site": "https://freecloud.ltd",
+    "loginApi": "/login",
+    "renewApi": "/server/detail/1234/renew",
+    "username": "user1",
+    "password": "password1"
+  },
+  {
+    "site": "https://freecloud.ltd",
+    "loginApi": "/login",
+    "renewApi": "/server/detail/5678/renew",
+    "username": "user2",
+    "password": "password2"
+  },
+  {
+    "site": "https://client.webhostmost.com",
+    "loginApi": "/login",
+    "username": "user3",
+    "password": "password3"
+  }
+]
