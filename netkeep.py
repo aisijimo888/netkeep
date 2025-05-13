@@ -173,7 +173,7 @@ def send_telegram_message(message):
         print(f"消息内容:\n{message}")
         return {"ok": False, "error": str(e)}
 
-def login_and_get_cookie(account, browser, max_retries=5):  # 增加重试次数
+def login_and_get_cookie(account, browser, max_retries=2):  # 减少重试次数为2次
     # 检查是否需要获取Cookie
     # 如果没有renewApi字段，默认不需要获取Cookie
     need_cookie = account.get('needCookie', 'renewApi' in account)
@@ -245,7 +245,7 @@ def login_and_get_cookie(account, browser, max_retries=5):  # 增加重试次数
         finally:
             page.close()
 
-def renew_vps(account, context, cookie, cf_clearance_cookie=None, max_retries=3):
+def renew_vps(account, context, cookie, cf_clearance_cookie=None, max_retries=2):  # 减少重试次数为2次
     page = context.new_page()
 
     try:
