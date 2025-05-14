@@ -173,12 +173,12 @@ def send_telegram_message(message):
         print(f"消息内容:\n{message}")
         return {"ok": False, "error": str(e)}
 
-def login_and_get_cookie(account, browser, max_retries=2):  # 减少重试次数为2次
+def login_and_get_cookie(account, browser, max_retries=5):  # 增加重试次数
     # 检查是否需要获取Cookie
     # 如果没有renewApi字段，默认不需要获取Cookie
     need_cookie = account.get('needCookie', 'renewApi' in account)
     context = browser.new_context(
-        user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+        user_agent='Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1',
         extra_http_headers={
             'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
             'Accept-Language': 'zh-CN,zh;q=0.9',
@@ -228,13 +228,11 @@ def login_and_get_cookie(account, browser, max_retries=2):  # 减少重试次数
                 cookie_value = f"{sw110xy_cookie['name']}={sw110xy_cookie['value']};1"
                 print(f"账号 {account['username']} 登录成功，Cookie: {cookie_value}")
 
-                # 返回context、page、cookie和cf_clearance_cookie
-                return context, page, cookie_value, cf_clearance_cookie
+                return context, cookie_value, cf_clearance_cookie
             else:
                 # 不需要获取Cookie，只需登录
                 print(f"账号 {account['username']} 登录成功，不需要获取Cookie")
-                # 返回context、page、None和None
-                return context, page, None, None
+                return context, None, None
         except PlaywrightTimeoutError as e:
             print(f"账号 {account['username']} 登录尝试 {attempt + 1} 失败: {str(e)}")
             if attempt < max_retries - 1:
@@ -244,35 +242,28 @@ def login_and_get_cookie(account, browser, max_retries=2):  # 减少重试次数
         except Exception as e:
             print(f"账号 {account['username']} 登录失败: {str(e)}")
             raise
+        finally:
+            page.close()
 
-def renew_vps(account, context, page, cookie, cf_clearance_cookie=None, max_retries=2):  # 减少重试次数为2次
-    """在登录成功的同一个页面中执行续期操作"""
+def renew_vps(account, context, cookie, cf_clearance_cookie=None, max_retries=3):
+    page = context.new_page()
+
     try:
         for attempt in range(max_retries):
             try:
                 # 导航到续期页面
-                renew_url = f"{account['site']}{account['renewApi']}"
-                print(f"尝试 {attempt + 1}/{max_retries}: 导航到 {renew_url} 页面...")
-
-                # 直接在当前页面中导航到续期URL
-                page.goto(renew_url, wait_until='load', timeout=120000)
+                print(f"尝试 {attempt + 1}/{max_retries}: 导航到 {account['site']}/server/lxc 页面...")
+                page.goto(f"{account['site']}/server/lxc", wait_until='load', timeout=120000)  # 增加超时时间
 
                 # 等待一段时间，确保页面加载完成
                 print(f"等待3秒，确保页面加载完成...")
                 time.sleep(3)
 
-                # 获取页面内容
-                content = page.content()
+                # 准备续期请求
+                renew_url = f"{account['site']}{account['renewApi']}"
+                print(f"账号 {account['username']} 的续期URL: {renew_url}")
 
-                # 打印页面内容以便调试
-                print(f"账号 {account['username']} 续期页面内容: {content[:400]}...")
-
-                # 检查页面内容，判断是否续期成功
-                if "成功" in content or "success" in content.lower():
-                    print(f"账号 {account['username']} 续期成功")
-                    return content
-
-                # 尝试使用Playwright的内置请求功能
+                # 使用Playwright的内置请求功能
                 print(f"正在为账号 {account['username']} 提交续期请求...")
 
                 # 设置请求头
@@ -305,55 +296,14 @@ def renew_vps(account, context, page, cookie, cf_clearance_cookie=None, max_retr
                 # 如果请求成功，返回响应文本
                 if status == 200:
                     return response_text
-
-                # 如果API请求失败，尝试查找并点击续期按钮
-                try:
-                    # 尝试查找并点击提交按钮
-                    submit_button = page.query_selector('button[type="submit"]')
-                    if submit_button:
-                        submit_button.click()
-                        page.wait_for_load_state('load', timeout=120000)
-                        time.sleep(3)
-
-                        # 再次检查页面内容
-                        content = page.content()
-                        if "成功" in content or "success" in content.lower():
-                            print(f"账号 {account['username']} 续期成功")
-                            return content
-                except Exception as e:
-                    print(f"尝试点击提交按钮失败: {str(e)}")
-
-                # 如果仍然失败，尝试使用JavaScript提交表单
-                try:
-                    result = page.evaluate('''() => {
-                        const form = document.querySelector('form');
-                        if (form) {
-                            form.submit();
-                            return "表单已提交";
-                        }
-                        return "未找到表单";
-                    }''')
-                    print(f"JavaScript提交表单结果: {result}")
-
-                    page.wait_for_load_state('load', timeout=120000)
-                    time.sleep(3)
-
-                    # 再次检查页面内容
-                    content = page.content()
-                    if "成功" in content or "success" in content.lower():
-                        print(f"账号 {account['username']} 续期成功")
-                        return content
-                except Exception as e:
-                    print(f"尝试使用JavaScript提交表单失败: {str(e)}")
-
-                # 如果所有尝试都失败，检查是否需要重试
-                if attempt < max_retries - 1:
-                    print(f"续期尝试 {attempt + 1} 失败，将在5秒后重试...")
-                    time.sleep(5)
-                    continue
                 else:
-                    print(f"所有续期尝试都失败，返回最后一次尝试的页面内容")
-                    return content
+                    print(f"续期请求返回非200状态码: {status}")
+                    if attempt < max_retries - 1:
+                        print(f"等待5秒后重试...")
+                        time.sleep(5)
+                        continue
+                    else:
+                        raise Exception(f"续期请求失败，状态码: {status}")
             except Exception as e:
                 print(f"续期尝试 {attempt + 1} 失败: {str(e)}")
                 if attempt < max_retries - 1:
@@ -363,9 +313,8 @@ def renew_vps(account, context, page, cookie, cf_clearance_cookie=None, max_retr
                 raise
         # 如果所有尝试都失败，抛出异常
         raise Exception(f"所有 {max_retries} 次续期尝试都失败")
-    except Exception as e:
-        print(f"续期过程中出错: {str(e)}")
-        raise
+    finally:
+        page.close()
 
 def main():
     # 从环境变量加载账号信息
@@ -483,7 +432,7 @@ def main():
                 browser = p.chromium.launch(headless=True, args=['--no-sandbox', '--disable-setuid-sandbox'])
 
                 # 登录
-                context, page, cookie, cf_clearance_cookie = login_and_get_cookie(account, browser)
+                context, cookie, cf_clearance_cookie = login_and_get_cookie(account, browser)
                 login_statuses.append(f"账号 {account['username']} ({site_name}) 登录成功")
 
                 # 检查是否需要续期
@@ -493,103 +442,22 @@ def main():
                         raise Exception("需要续期但未获取到Cookie")
 
                     print(f"账号 {account['username']} 配置了续期API，执行续期操作...")
+                    result = renew_vps(account, context, cookie, cf_clearance_cookie)
 
-                    # 使用Playwright的内置请求功能发送续期请求
+                    # 尝试解析JSON并将Unicode转换为中文
                     try:
-                        result = renew_vps(account, context, page, cookie, cf_clearance_cookie)
-
-                        # 尝试解析JSON并将Unicode转换为中文
-                        try:
-                            result_json = json.loads(result)
-                            if 'msg' in result_json:
-                                # 确保Unicode已经被正确解码为中文
-                                result_json['msg'] = result_json['msg']
-                                result_readable = json.dumps(result_json, ensure_ascii=False)
-                            else:
-                                result_readable = result
-                        except:
+                        result_json = json.loads(result)
+                        if 'msg' in result_json:
+                            # 确保Unicode已经被正确解码为中文
+                            result_json['msg'] = result_json['msg']
+                            result_readable = json.dumps(result_json, ensure_ascii=False)
+                        else:
                             result_readable = result
+                    except:
+                        result_readable = result
 
-                        renew_statuses.append(f"账号 {account['username']} ({site_name}) 续期成功: {result_readable}")
-                        print(f"账号 {account['username']} 续期完成")
-                    except Exception as e:
-                        print(f"使用Playwright续期失败: {str(e)}")
-                        print("尝试使用备用方法续期...")
-
-                        # 如果Playwright方法失败，尝试使用备用方法
-                        try:
-                            # 尝试直接在当前页面中导航到续期URL
-                            renew_url = f"{account['site']}{account['renewApi']}"
-                            print(f"备用方法：直接导航到 {renew_url}")
-
-                            # 直接在当前页面中导航到续期URL
-                            page.goto(renew_url, wait_until='load', timeout=120000)
-
-                            # 等待一段时间，确保页面加载完成
-                            time.sleep(3)
-
-                            # 获取页面内容
-                            content = page.content()
-
-                            # 检查页面内容，判断是否续期成功
-                            if "成功" in content or "success" in content.lower():
-                                print(f"账号 {account['username']} 续期成功")
-                                result = content
-                                result_readable = "页面内容显示续期成功"
-                                renew_statuses.append(f"账号 {account['username']} ({site_name}) 续期成功: {result_readable}")
-                                print(f"账号 {account['username']} 续期完成")
-                                return
-
-                            # 如果直接导航失败，尝试使用requests发送请求
-                            print("直接导航未成功，尝试使用requests发送请求...")
-
-                            # 设置请求头
-                            headers = {
-                                'Cookie': cookie,
-                                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
-                                'Referer': f"{account['site']}/server/lxc",
-                                'Accept': 'application/json, text/javascript, */*; q=0.01',
-                                'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
-                                'X-Requested-With': 'XMLHttpRequest',
-                                'Origin': account['site'],
-                                'Connection': 'keep-alive',
-                                'Sec-Fetch-Dest': 'empty',
-                                'Sec-Fetch-Mode': 'cors',
-                                'Sec-Fetch-Site': 'same-origin',
-                                'Pragma': 'no-cache',
-                                'Cache-Control': 'no-cache'
-                            }
-
-                            # 如果有cf_clearance_cookie，添加到Cookie中
-                            if cf_clearance_cookie:
-                                headers['Cookie'] += f"; cf_clearance={cf_clearance_cookie['value']}"
-
-                            # 发送续期请求
-                            response = requests.get(renew_url, headers=headers)
-
-                            # 检查响应状态码
-                            if response.status_code == 200:
-                                result = response.text
-
-                                # 尝试解析JSON并将Unicode转换为中文
-                                try:
-                                    result_json = json.loads(result)
-                                    if 'msg' in result_json:
-                                        # 确保Unicode已经被正确解码为中文
-                                        result_json['msg'] = result_json['msg']
-                                        result_readable = json.dumps(result_json, ensure_ascii=False)
-                                    else:
-                                        result_readable = result
-                                except:
-                                    result_readable = result
-
-                                renew_statuses.append(f"账号 {account['username']} ({site_name}) 续期成功: {result_readable}")
-                                print(f"账号 {account['username']} 续期完成")
-                            else:
-                                raise Exception(f"续期请求失败，状态码: {response.status_code}")
-                        except Exception as e2:
-                            print(f"备用续期方法也失败: {str(e2)}")
-                            raise Exception(f"所有续期方法都失败: {str(e)}, {str(e2)}")
+                    renew_statuses.append(f"账号 {account['username']} ({site_name}) 续期成功: {result_readable}")
+                    print(f"账号 {account['username']} 续期完成")
                 else:
                     print(f"账号 {account['username']} 未配置续期API，仅执行登录操作")
                     renew_statuses.append(f"账号 {account['username']} ({site_name}) 仅执行登录，未进行续期")
@@ -624,7 +492,6 @@ def main():
                 # 确保关闭浏览器上下文和浏览器实例
                 if context:
                     print(f"关闭账号 {account['username']} 的浏览器上下文...")
-                    # 不需要单独关闭page，因为关闭context会自动关闭所有相关页面
                     context.close()
                 if browser:
                     print(f"关闭账号 {account['username']} 的浏览器实例...")
