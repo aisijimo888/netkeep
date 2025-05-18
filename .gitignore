@@ -2,6 +2,9 @@
 .env
 config.json
 .gitignore
+config1.json
+config2.json
+
 
 # Python
 __pycache__/

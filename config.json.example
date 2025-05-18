@@ -1,4 +1,14 @@
-[
+# NetKeep配置文件示例
+# 请将此文件重命名为config.json并修改为您的实际配置
+
+# Telegram通知配置（可选）
+# 如果需要Telegram通知，请取消下面两行的注释并填入您的配置
+# TELEGRAM_BOT_TOKEN=your_bot_token_here
+# TELEGRAM_CHAT_ID=your_chat_id_here
+
+# 账号配置（必填）
+# 格式为JSON数组，每个账号包含site, loginApi, renewApi, username, password字段
+NETKEEP_ACCOUNTS=[
   {
     "site": "https://freecloud.ltd",
     "loginApi": "/login",

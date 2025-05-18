@@ -26,9 +26,8 @@ jobs:
         # 安装调试工具
         pip install pytest-playwright
 
-    - name: 创建调试目录
+    - name: 创建调试日志目录
       run: |
-        mkdir -p debug_screenshots
         mkdir -p debug_logs
 
     - name: 运行NetKeep脚本（调试模式）
@@ -47,23 +46,11 @@ jobs:
 
         # 运行脚本并保存详细日志
         python netkeep.py 2>&1 | tee debug_logs/netkeep_run.log
-
-        # 移动所有截图到调试目录
-        mv *.png debug_screenshots/ 2>/dev/null || true
-
-        # 列出所有生成的调试文件
-        echo "===== 调试截图文件 ====="
-        ls -la debug_screenshots/
+        # 列出所有生成的调试日志文件
         echo "===== 调试日志文件 ====="
         ls -la debug_logs/
 
-    - name: 上传调试截图
-      if: always()  # 无论前一步是否成功都执行
-      uses: actions/upload-artifact@v3
-      with:
-        name: debug-screenshots
-        path: debug_screenshots/
-        retention-days: 5
+
 
     - name: 上传调试日志
       if: always()  # 无论前一步是否成功都执行
