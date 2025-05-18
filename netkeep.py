@@ -374,7 +374,7 @@ def login_and_get_cookie(account, browser, max_retries=2):  # 减少重试次数
                             continue
 
             # 开始轮询检测登录状态
-            print(f"开始轮询检测登录状态...")
+            print(f"开始检测登录状态...")
             start_time = time.time()
             max_wait_time = 30  # 最多等待30秒，比netkeep1.py的等待时间长，但比原来的60秒短
             login_success_detected = False
@@ -393,11 +393,6 @@ def login_and_get_cookie(account, browser, max_retries=2):  # 减少重试次数
                     current_url = page.url
                     url_changed = login_url != current_url and "/login" not in current_url
 
-                    # 减少日志输出，只在特定间隔输出
-                    if poll_count % 5 == 0 or poll_count < 5:
-                        print(f"轮询 #{poll_count} (耗时: {current_poll_time:.2f}秒) - 当前URL: {current_url}")
-                        print(f"URL是否改变: {url_changed}")
-
                     if url_changed:
                         # URL已改变，检查是否有登录表单
                         login_form_exists = False
@@ -408,7 +403,6 @@ def login_and_get_cookie(account, browser, max_retries=2):  # 减少重试次数
 
                         if not login_form_exists:
                             # URL已改变且没有登录表单，很可能已经登录成功
-                            print(f"URL已改变且无登录表单，检测到登录成功 (耗时: {current_poll_time:.2f}秒)")
                             login_success_detected = True
                             break
                     else:
@@ -425,31 +419,20 @@ def login_and_get_cookie(account, browser, max_retries=2):  # 减少重试次数
                                 ]
 
                                 if any(indicator in page_content for indicator in client_area_indicators) and not login_form_exists:
-                                    print(f"页面内容表明登录成功且无登录表单，检测到登录成功 (耗时: {current_poll_time:.2f}秒)")
                                     login_success_detected = True
                                     break
-                            except Exception as e:
-                                if poll_count % 10 == 0:
-                                    print(f"完整检查时出错: {str(e)}")
-                except Exception as e:
-                    if poll_count % 10 == 0:
-                        print(f"轮询检查时出错: {str(e)}")
-
-                # 减少轮询状态输出
-                if poll_count % 10 == 0:
-                    print(f"继续轮询... (已轮询: {poll_count}次, 耗时: {current_poll_time:.2f}秒)")
+                            except Exception:
+                                pass
+                except Exception:
+                    pass
 
                 time.sleep(current_interval)
 
-            # 轮询结束后的最终检查
-            print(f"轮询结束，进行最终检查")
-
+            # 最终检查
             try:
                 # 获取最终的页面状态
                 current_url = page.url
                 url_changed = login_url != current_url and "/login" not in current_url
-
-                print(f"最终检查 - 当前URL: {current_url}")
 
                 # 快速检查登录状态
                 login_form_exists = False
@@ -471,8 +454,8 @@ def login_and_get_cookie(account, browser, max_retries=2):  # 减少重试次数
                     # 检查失败指标
                     failure_texts = ["密码错误", "用户名错误", "登录失败", "incorrect password", "invalid username"]
                     failure_detected = any(text in page_content for text in failure_texts)
-                except Exception as e:
-                    print(f"检查页面状态时出错: {str(e)}")
+                except Exception:
+                    pass
 
                 # 如果轮询中未检测到成功，再次检查
                 if not login_success_detected:
@@ -481,21 +464,21 @@ def login_and_get_cookie(account, browser, max_retries=2):  # 减少重试次数
 
                 # 最终判断
                 if login_success_detected:
-                    print(f"最终判断: 登录成功")
+                    print(f"登录成功")
                 elif failure_detected:
-                    print(f"最终判断: 登录失败 (检测到失败提示)")
+                    print(f"登录失败 (检测到失败提示)")
                     raise Exception(f"登录失败，检测到失败提示")
                 elif login_form_exists:
-                    print(f"最终判断: 登录失败 (仍存在登录表单)")
+                    print(f"登录失败 (仍存在登录表单)")
                     raise Exception("登录失败，仍存在登录表单")
                 elif url_changed:
-                    print(f"最终判断: 登录成功 (URL已改变)")
+                    print(f"登录成功 (URL已改变)")
                     login_success_detected = True
                 elif content_indicates_success:
-                    print(f"最终判断: 登录成功 (页面内容包含客户区域特征)")
+                    print(f"登录成功 (页面内容包含客户区域特征)")
                     login_success_detected = True
                 else:
-                    print(f"最终判断: 无法确定登录状态")
+                    print(f"登录失败 (无法确定登录状态)")
                     raise Exception("登录超时，未能确认登录状态")
             except Exception as e:
                 if not login_success_detected:
