@@ -1,9 +1,66 @@
 import json
 import os
+import sys
 import time
+import random
 import requests
+import logging
+import traceback
+from datetime import datetime
 from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeoutError
 from dotenv import load_dotenv
+
+# 配置日志
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s [%(levelname)s] %(message)s',
+    handlers=[
+        logging.StreamHandler(sys.stdout)
+    ]
+)
+logger = logging.getLogger("NetKeep")
+
+# 调试函数
+def debug_info(message, data=None, screenshot=None, account=None):
+    """记录调试信息，可选择保存截图和数据"""
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+
+    # 记录消息
+    if account:
+        logger.info(f"[{account['username']}] {message}")
+    else:
+        logger.info(message)
+
+    # 如果提供了数据，保存到文件
+    if data:
+        try:
+            filename = f"debug_logs/debug_{timestamp}"
+            if account:
+                filename += f"_{account['username']}"
+            filename += ".json"
+
+            with open(filename, 'w', encoding='utf-8') as f:
+                if isinstance(data, str):
+                    f.write(data)
+                else:
+                    json.dump(data, f, ensure_ascii=False, indent=2)
+
+            logger.info(f"调试数据已保存到 {filename}")
+        except Exception as e:
+            logger.error(f"保存调试数据失败: {str(e)}")
+
+    # 如果提供了页面对象，保存截图
+    if screenshot:
+        try:
+            filename = f"debug_screenshots/debug_{timestamp}"
+            if account:
+                filename += f"_{account['username']}"
+            filename += ".png"
+
+            screenshot.screenshot(path=filename)
+            logger.info(f"调试截图已保存到 {filename}")
+        except Exception as e:
+            logger.error(f"保存调试截图失败: {str(e)}")
 
 # 处理配置文件
 def process_config_file():
@@ -11,7 +68,7 @@ def process_config_file():
     config_path = 'config.json'
     env_path = '.env'
     env_example_path = '.env.example'
-    print("环境变量NETKEEP_ACCOUNTS:", os.environ.get('NETKEEP_ACCOUNTS', '未设置'))
+    logger.info("环境变量NETKEEP_ACCOUNTS: %s", os.environ.get('NETKEEP_ACCOUNTS', '未设置'))
 
     # 检查是否存在config.json文件
     if os.path.exists(config_path):
@@ -425,20 +482,27 @@ def renew_vps(account, context, cookie, cf_clearance_cookie=None, max_retries=3)
 
                 # 方法1: 直接访问续期页面并点击续期按钮
                 try:
-                    print(f"方法1: 直接访问续期页面 {renew_url}")
+                    debug_info(f"方法1: 直接访问续期页面 {renew_url}", account=account)
+
+                    # 保存续期前的页面内容和截图
+                    debug_info("续期前页面状态", data=page.content(), screenshot=page, account=account)
+
                     page.goto(renew_url, wait_until='networkidle', timeout=120000)
 
                     # 等待页面加载
                     time.sleep(5)
 
+                    # 保存导航后的页面内容和截图
+                    debug_info("续期页面导航后状态", data=page.content(), screenshot=page, account=account)
+
                     # 检查是否遇到CloudFlare挑战页面
                     if page.content().find("Just a moment") > -1 or page.content().find("Checking your browser") > -1:
-                        print("续期页面遇到CloudFlare挑战，等待挑战完成...")
+                        debug_info("续期页面遇到CloudFlare挑战，等待挑战完成...", screenshot=page, account=account)
                         # 等待更长时间让CloudFlare挑战完成
                         for i in range(12):  # 最多等待60秒
                             time.sleep(5)
                             if page.content().find("Just a moment") == -1 and page.content().find("Checking your browser") == -1:
-                                print("CloudFlare挑战已完成，继续执行...")
+                                debug_info("CloudFlare挑战已完成，继续执行...", screenshot=page, account=account)
                                 break
 
                     # 查找并点击续期按钮
@@ -456,21 +520,43 @@ def renew_vps(account, context, cookie, cf_clearance_cookie=None, max_retries=3)
                         'a.btn-primary:has-text("续期")'
                     ]
 
+                    # 记录所有可见元素，帮助调试
+                    all_buttons = []
+                    for selector in ['button', 'a.btn', 'input[type="submit"]', 'a[href*="renew"]']:
+                        elements = page.locator(selector).all()
+                        for element in elements:
+                            try:
+                                text = element.text_content()
+                                all_buttons.append({"selector": selector, "text": text})
+                            except:
+                                pass
+
+                    debug_info("页面上的所有按钮元素", data=all_buttons, account=account)
+
                     for selector in selectors:
                         if page.locator(selector).count() > 0:
-                            print(f"找到续期按钮: {selector}")
+                            debug_info(f"找到续期按钮: {selector}", account=account)
                             # 点击前截图
-                            page.screenshot(path=f"before_click_{account['username']}.png")
-                            page.locator(selector).first.click()
+                            debug_info("点击续期按钮前", screenshot=page, account=account)
+
+                            try:
+                                # 尝试使用JavaScript点击
+                                page.evaluate(f'document.querySelector("{selector}").click()')
+                                debug_info("使用JavaScript点击续期按钮", account=account)
+                            except:
+                                # 如果JavaScript点击失败，使用Playwright点击
+                                page.locator(selector).first.click()
+                                debug_info("使用Playwright点击续期按钮", account=account)
+
                             renew_button_found = True
                             # 等待页面响应
                             time.sleep(3)
                             # 点击后截图
-                            page.screenshot(path=f"after_click_{account['username']}.png")
+                            debug_info("点击续期按钮后", screenshot=page, account=account)
                             break
 
                     if not renew_button_found:
-                        print("未找到续期按钮，尝试方法2...")
+                        debug_info("未找到续期按钮，尝试方法2...", screenshot=page, account=account)
                         raise Exception("未找到续期按钮")
 
                     # 检查是否有确认对话框
@@ -482,40 +568,84 @@ def renew_vps(account, context, cookie, cf_clearance_cookie=None, max_retries=3)
                         'button[type="submit"]:has-text("确定")'
                     ]
 
+                    # 记录所有可见的确认按钮
+                    all_confirm_buttons = []
+                    for selector in ['button', 'input[type="submit"]']:
+                        elements = page.locator(selector).all()
+                        for element in elements:
+                            try:
+                                text = element.text_content()
+                                all_confirm_buttons.append({"selector": selector, "text": text})
+                            except:
+                                pass
+
+                    debug_info("页面上的所有确认按钮元素", data=all_confirm_buttons, account=account)
+
+                    confirm_button_found = False
                     for selector in confirm_selectors:
                         if page.locator(selector).count() > 0:
-                            print(f"找到确认按钮: {selector}")
-                            page.locator(selector).first.click()
+                            debug_info(f"找到确认按钮: {selector}", screenshot=page, account=account)
+
+                            try:
+                                # 尝试使用JavaScript点击
+                                page.evaluate(f'document.querySelector("{selector}").click()')
+                                debug_info("使用JavaScript点击确认按钮", account=account)
+                            except:
+                                # 如果JavaScript点击失败，使用Playwright点击
+                                page.locator(selector).first.click()
+                                debug_info("使用Playwright点击确认按钮", account=account)
+
+                            confirm_button_found = True
                             time.sleep(3)
+                            debug_info("点击确认按钮后", screenshot=page, account=account)
                             break
+
+                    if confirm_button_found:
+                        debug_info("已点击确认按钮", account=account)
+                    else:
+                        debug_info("未找到确认按钮", account=account)
 
                     # 检查续期结果
                     success_texts = ["续期成功", "已续期", "操作成功", "success"]
                     page_content = page.content().lower()
 
+                    # 保存最终页面内容
+                    debug_info("续期操作后页面内容", data=page_content, account=account)
+
                     success = False
                     for text in success_texts:
                         if text.lower() in page_content:
                             success = True
-                            print(f"检测到成功信息: '{text}'")
+                            debug_info(f"检测到成功信息: '{text}'", account=account)
                             break
 
                     if success:
+                        debug_info("续期成功", screenshot=page, account=account)
                         return "续期成功"
                     else:
                         # 如果页面上没有成功信息，尝试方法2
-                        print("未检测到续期成功信息，尝试方法2...")
+                        debug_info("未检测到续期成功信息，尝试方法2...", screenshot=page, account=account)
                         raise Exception("未检测到续期成功信息")
 
                 except Exception as e:
-                    print(f"方法1失败: {str(e)}，尝试方法2...")
+                    debug_info(f"方法1失败: {str(e)}，尝试方法2...", account=account)
+                    # 保存异常堆栈信息
+                    debug_info("方法1失败详细信息", data=traceback.format_exc(), account=account)
 
                 # 方法2: 使用API请求续期
                 try:
-                    print(f"方法2: 使用API请求续期")
+                    debug_info(f"方法2: 使用API请求续期", account=account)
                     # 先导航到服务器列表页面建立会话
+                    debug_info("导航到服务器列表页面建立会话", account=account)
                     page.goto(f"{account['site']}/server/lxc", wait_until='networkidle', timeout=120000)
                     time.sleep(3)
+
+                    # 保存服务器列表页面状态
+                    debug_info("服务器列表页面状态", data=page.content(), screenshot=page, account=account)
+
+                    # 获取所有cookie
+                    cookies = context.cookies()
+                    debug_info("当前会话Cookie", data=cookies, account=account)
 
                     # 设置请求头
                     headers = {
@@ -523,8 +653,15 @@ def renew_vps(account, context, cookie, cf_clearance_cookie=None, max_retries=3)
                         'X-Requested-With': 'XMLHttpRequest',
                         'Referer': f"{account['site']}/server/lxc",
                         'Origin': account['site'],
-                        'User-Agent': page.evaluate('() => navigator.userAgent')
+                        'User-Agent': page.evaluate('() => navigator.userAgent'),
+                        'Cookie': cookie  # 使用登录时获取的cookie
                     }
+
+                    # 如果有CloudFlare cookie，添加到请求头
+                    if cf_clearance_cookie:
+                        headers['Cookie'] += f"; cf_clearance={cf_clearance_cookie['value']}"
+
+                    debug_info("API请求头", data=headers, account=account)
 
                     # 设置请求体
                     data = {
@@ -533,43 +670,121 @@ def renew_vps(account, context, cookie, cf_clearance_cookie=None, max_retries=3)
                         'submit': '1'
                     }
 
+                    debug_info("API请求体", data=data, account=account)
+
                     # 发送POST请求
-                    print(f"正在为账号 {account['username']} 提交续期API请求...")
-                    response = page.request.post(
-                        renew_url,
-                        headers=headers,
-                        form=data
-                    )
+                    debug_info(f"正在为账号 {account['username']} 提交续期API请求...", account=account)
 
-                    # 获取响应
-                    status = response.status
-                    response_text = response.text()
+                    # 尝试使用fetch API
+                    try:
+                        debug_info("尝试使用浏览器的fetch API发送请求", account=account)
+                        fetch_result = page.evaluate(f'''
+                            async () => {{
+                                try {{
+                                    const response = await fetch("{renew_url}", {{
+                                        method: 'POST',
+                                        headers: {{
+                                            'Content-Type': 'application/x-www-form-urlencoded',
+                                            'X-Requested-With': 'XMLHttpRequest'
+                                        }},
+                                        body: 'month=1&coupon_id=0&submit=1',
+                                        credentials: 'include'
+                                    }});
 
-                    print(f"账号 {account['username']} 续期响应状态码: {status}")
-                    print(f"账号 {account['username']} 续期响应内容: {response_text}")
+                                    const status = response.status;
+                                    const text = await response.text();
+                                    return {{ status, text }};
+                                }} catch (error) {{
+                                    return {{ error: error.toString() }};
+                                }}
+                            }}
+                        ''')
+
+                        debug_info("fetch API结果", data=fetch_result, account=account)
+
+                        if 'error' in fetch_result:
+                            debug_info(f"fetch API失败: {fetch_result['error']}", account=account)
+                            raise Exception(f"fetch API失败: {fetch_result['error']}")
+
+                        status = fetch_result['status']
+                        response_text = fetch_result['text']
+                    except Exception as e:
+                        debug_info(f"fetch API异常: {str(e)}，尝试使用Playwright请求", account=account)
+
+                        # 如果fetch API失败，使用Playwright的请求API
+                        response = page.request.post(
+                            renew_url,
+                            headers=headers,
+                            form=data
+                        )
+
+                        # 获取响应
+                        status = response.status
+                        response_text = response.text()
+
+                    debug_info(f"账号 {account['username']} 续期响应状态码: {status}", account=account)
+                    debug_info(f"账号 {account['username']} 续期响应内容", data=response_text, account=account)
 
                     # 如果请求成功，返回响应文本
                     if status == 200:
-                        return response_text
+                        # 检查响应内容是否包含成功信息
+                        success_texts = ["续期成功", "已续期", "操作成功", "success"]
+                        success = False
+
+                        for text in success_texts:
+                            if text.lower() in response_text.lower():
+                                success = True
+                                debug_info(f"API响应中检测到成功信息: '{text}'", account=account)
+                                break
+
+                        if success:
+                            debug_info("API续期成功", account=account)
+                            return response_text
+                        else:
+                            debug_info("API响应状态码为200，但未检测到成功信息", data=response_text, account=account)
+                            # 尝试导航到续期页面查看结果
+                            try:
+                                page.goto(renew_url, wait_until='networkidle', timeout=120000)
+                                debug_info("续期后页面状态", screenshot=page, account=account)
+                            except:
+                                pass
+
+                            return response_text
                     else:
-                        print(f"续期请求返回非200状态码: {status}")
+                        debug_info(f"续期请求返回非200状态码: {status}", data=response_text, account=account)
+
+                        # 检查是否是CloudFlare挑战
+                        if "Just a moment" in response_text or "Checking your browser" in response_text:
+                            debug_info("API请求被CloudFlare拦截", account=account)
+
                         if attempt < max_retries - 1:
-                            print(f"等待5秒后重试...")
+                            debug_info(f"等待5秒后重试...", account=account)
                             time.sleep(5)
                             continue
                         else:
                             raise Exception(f"续期请求失败，状态码: {status}")
                 except Exception as e:
-                    print(f"方法2失败: {str(e)}")
+                    debug_info(f"方法2失败: {str(e)}", account=account)
+                    # 保存异常堆栈信息
+                    debug_info("方法2失败详细信息", data=traceback.format_exc(), account=account)
+
                     if attempt < max_retries - 1:
-                        print(f"等待5秒后重试...")
+                        debug_info(f"等待5秒后重试...", account=account)
                         time.sleep(5)
                         continue
                     raise
             except Exception as e:
-                print(f"续期尝试 {attempt + 1} 失败: {str(e)}")
+                debug_info(f"续期尝试 {attempt + 1} 失败: {str(e)}", account=account)
+                # 保存异常堆栈信息
+                debug_info("续期失败详细信息", data=traceback.format_exc(), account=account)
+                # 保存当前页面状态
+                try:
+                    debug_info("续期失败时页面状态", screenshot=page, account=account)
+                except:
+                    pass
+
                 if attempt < max_retries - 1:
-                    print(f"等待5秒后重试...")
+                    debug_info(f"等待5秒后重试...", account=account)
                     time.sleep(5)
                     continue
                 raise
@@ -579,12 +794,24 @@ def renew_vps(account, context, cookie, cf_clearance_cookie=None, max_retries=3)
         page.close()
 
 def main():
+    # 创建调试目录
+    os.makedirs("debug_screenshots", exist_ok=True)
+    os.makedirs("debug_logs", exist_ok=True)
+
+    # 记录系统信息
+    debug_info("NetKeep启动", data={
+        "时间": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "Python版本": sys.version,
+        "操作系统": os.name,
+        "环境变量": {k: v for k, v in os.environ.items() if not ("password" in k.lower() or "token" in k.lower() or "secret" in k.lower())}
+    })
+
     # 从环境变量加载账号信息
     # 兼容旧的FREECLOUD_ACCOUNTS变量名
     netkeep_accounts_env = os.environ.get('NETKEEP_ACCOUNTS', os.environ.get('FREECLOUD_ACCOUNTS', '[]'))
 
-    # 打印原始环境变量值，用于调试
-    print("原始NETKEEP_ACCOUNTS环境变量值:", netkeep_accounts_env)
+    # 记录原始环境变量值，用于调试
+    logger.info("原始NETKEEP_ACCOUNTS环境变量值: %s", netkeep_accounts_env)
 
     try:
         # 尝试直接解析JSON
