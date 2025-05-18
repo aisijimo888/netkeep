@@ -314,6 +314,7 @@ def login_and_get_cookie(account, browser, max_retries=2):  # 减少重试次数
                 try:
                     print(f"等待页面加载...")
                     page.wait_for_load_state('domcontentloaded', timeout=30000)
+                    print(f"页面已加载完毕 (domcontentloaded)")
                 except Exception as e:
                     print(f"等待页面加载时出错: {str(e)}，继续执行...")
 
@@ -334,6 +335,7 @@ def login_and_get_cookie(account, browser, max_retries=2):  # 减少重试次数
                     try:
                         print(f"等待页面加载...")
                         page.wait_for_load_state('domcontentloaded', timeout=30000)
+                        print(f"页面已加载完毕 (domcontentloaded)")
                     except Exception as e:
                         print(f"等待页面加载时出错: {str(e)}，继续执行...")
 
@@ -360,6 +362,7 @@ def login_and_get_cookie(account, browser, max_retries=2):  # 减少重试次数
                                 try:
                                     print(f"等待页面加载...")
                                     page.wait_for_load_state('domcontentloaded', timeout=30000)
+                                    print(f"页面已加载完毕 (domcontentloaded)")
                                 except Exception as e:
                                     print(f"等待页面加载时出错: {str(e)}，继续执行...")
 
@@ -589,6 +592,18 @@ def login_and_get_cookie(account, browser, max_retries=2):  # 减少重试次数
             if attempt < max_retries - 1:
                 print(f"等待10秒后重试...")
                 time.sleep(10)
+
+                # 检查页面是否已关闭，如果已关闭则创建新页面
+                try:
+                    # 尝试访问页面的URL属性，如果页面已关闭会抛出异常
+                    _ = page.url
+                except Exception:
+                    print("页面已关闭，创建新页面...")
+                    try:
+                        page = context.new_page()
+                    except Exception as new_page_error:
+                        print(f"创建新页面失败: {str(new_page_error)}")
+
                 continue
             raise
         except Exception as e:
@@ -623,14 +638,27 @@ def login_and_get_cookie(account, browser, max_retries=2):  # 减少重试次数
             if attempt < max_retries - 1:
                 print(f"等待10秒后重试...")
                 time.sleep(10)
+
+                # 检查页面是否已关闭，如果已关闭则创建新页面
+                try:
+                    # 尝试访问页面的URL属性，如果页面已关闭会抛出异常
+                    _ = page.url
+                except Exception:
+                    print("页面已关闭，创建新页面...")
+                    try:
+                        page = context.new_page()
+                    except Exception as new_page_error:
+                        print(f"创建新页面失败: {str(new_page_error)}")
+
                 continue
             raise
         finally:
-            # 关闭页面
-            try:
-                page.close()
-            except Exception:
-                pass
+            # 只有在登录成功后才关闭页面，失败时保留页面以便重试
+            if login_success_detected:
+                try:
+                    page.close()
+                except Exception:
+                    pass
 
 # 检查登录是否成功
 def check_login_success(page, login_url):
