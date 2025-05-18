@@ -173,60 +173,189 @@ def send_telegram_message(message):
         print(f"消息内容:\n{message}")
         return {"ok": False, "error": str(e)}
 
-def login_and_get_cookie(account, browser, max_retries=2):  # 增加重试次数
+def login_and_get_cookie(account, browser, max_retries=3):  # 增加重试次数
     # 检查是否需要获取Cookie
     # 如果没有renewApi字段，默认不需要获取Cookie
     need_cookie = account.get('needCookie', 'renewApi' in account)
+
+    # 使用更真实的浏览器配置
     context = browser.new_context(
-        user_agent='Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1',
+        user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        viewport={'width': 1280, 'height': 800},
         extra_http_headers={
-            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-            'Accept-Language': 'zh-CN,zh;q=0.9',
-            'Upgrade-Insecure-Requests': '1'
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
+            'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
+            'Upgrade-Insecure-Requests': '1',
+            'sec-ch-ua': '"Not_A Brand";v="8", "Chromium";v="120"',
+            'sec-ch-ua-mobile': '?0',
+            'sec-ch-ua-platform': '"Windows"'
         }
     )
+
+    # 启用JavaScript
+    context.add_init_script("Object.defineProperty(navigator, 'webdriver', {get: () => false})")
+
     page = context.new_page()
+
+    # 随机移动鼠标，模拟人类行为
+    def simulate_human_behavior(page):
+        # 随机移动鼠标
+        import random
+        for _ in range(3):
+            page.mouse.move(
+                random.randint(100, 1000),
+                random.randint(100, 600)
+            )
+            time.sleep(random.uniform(0.5, 1.5))
 
     for attempt in range(max_retries):
         try:
             login_url = f"{account['site']}{account['loginApi']}"
             print(f"尝试 {attempt + 1}/{max_retries}: 导航到 {login_url} 登录 {account['username']}")
-            # 增加超时时间到120秒
-            page.goto(login_url, wait_until='load', timeout=120000)
+
+            # 使用networkidle等待所有网络请求完成
+            page.goto(login_url, wait_until='networkidle', timeout=120000)
+
+            # 检查是否遇到CloudFlare挑战页面
+            if page.content().find("Just a moment") > -1 or page.content().find("Checking your browser") > -1:
+                print("检测到CloudFlare挑战页面，等待挑战完成...")
+                # 等待更长时间让CloudFlare挑战完成
+                for i in range(12):  # 最多等待60秒
+                    time.sleep(5)
+                    if page.content().find("Just a moment") == -1 and page.content().find("Checking your browser") == -1:
+                        print("CloudFlare挑战已完成，继续执行...")
+                        break
+
+                # 如果仍然在CloudFlare页面，尝试刷新
+                if page.content().find("Just a moment") > -1 or page.content().find("Checking your browser") > -1:
+                    print("CloudFlare挑战仍未完成，尝试刷新页面...")
+                    page.reload(wait_until='networkidle', timeout=120000)
+                    time.sleep(5)
+
+            # 模拟人类行为
+            simulate_human_behavior(page)
 
             # 填写表单
-            page.fill('input[name="username"]', account['username'])
-            page.fill('input[name="password"]', account['password'])
+            print("填写登录表单...")
+
+            # 尝试不同的用户名输入框选择器
+            username_selectors = ['input[name="username"]', 'input[name="email"]', 'input[id="username"]', 'input[id="email"]']
+            for selector in username_selectors:
+                if page.locator(selector).count() > 0:
+                    print(f"找到用户名输入框: {selector}")
+                    page.fill(selector, account['username'])
+                    break
+
+            # 尝试不同的密码输入框选择器
+            password_selectors = ['input[name="password"]', 'input[id="password"]', 'input[type="password"]']
+            for selector in password_selectors:
+                if page.locator(selector).count() > 0:
+                    print(f"找到密码输入框: {selector}")
+                    page.fill(selector, account['password'])
+                    break
+
+            # 尝试勾选"记住我"选项
             page.evaluate('() => { const remember = document.querySelector(\'input[name="remember"]\'); if (remember) remember.checked = true; }')
+
+            # 模拟人类行为
+            simulate_human_behavior(page)
 
             # 提交登录
             print(f"提交登录表单...")
-            page.click('button[type="submit"]')
-            page.wait_for_load_state('load', timeout=120000)  # 增加超时时间
+
+            # 尝试不同的登录按钮选择器
+            login_button_selectors = [
+                'button[type="submit"]',
+                'input[type="submit"]',
+                'button:has-text("登录")',
+                'button:has-text("Login")',
+                'a:has-text("登录")',
+                'a:has-text("Login")'
+            ]
+
+            login_button_found = False
+            for selector in login_button_selectors:
+                if page.locator(selector).count() > 0:
+                    print(f"找到登录按钮: {selector}")
+                    page.locator(selector).first.click()
+                    login_button_found = True
+                    break
+
+            if not login_button_found:
+                print("未找到登录按钮，尝试提交表单...")
+                page.evaluate('() => { const form = document.querySelector("form"); if (form) form.submit(); }')
+
+            # 等待页面加载完成
+            page.wait_for_load_state('networkidle', timeout=120000)
 
             # 等待一段时间，确保登录完成
-            print(f"等待3秒，确保登录完成...")
-            time.sleep(3)
+            print(f"等待5秒，确保登录完成...")
+            time.sleep(5)
+
+            # 检查是否登录成功
+            # 可能的登录失败提示
+            failure_texts = ["密码错误", "用户名错误", "登录失败", "incorrect password", "invalid username"]
+            page_content = page.content().lower()
+
+            for text in failure_texts:
+                if text.lower() in page_content:
+                    raise Exception(f"登录失败，页面提示: '{text}'")
 
             # 只有需要获取Cookie时才访问 /server/lxc 建立会话
             if need_cookie:
                 print(f"导航到 {account['site']}/server/lxc 页面...")
-                page.goto(f"{account['site']}/server/lxc", wait_until='load', timeout=120000)  # 增加超时时间
+                page.goto(f"{account['site']}/server/lxc", wait_until='networkidle', timeout=120000)
+
+                # 检查是否遇到CloudFlare挑战页面
+                if page.content().find("Just a moment") > -1 or page.content().find("Checking your browser") > -1:
+                    print("服务器页面遇到CloudFlare挑战，等待挑战完成...")
+                    # 等待更长时间让CloudFlare挑战完成
+                    for i in range(12):  # 最多等待60秒
+                        time.sleep(5)
+                        if page.content().find("Just a moment") == -1 and page.content().find("Checking your browser") == -1:
+                            print("CloudFlare挑战已完成，继续执行...")
+                            break
             else:
                 print(f"不需要获取Cookie，跳过导航到 {account['site']}/server/lxc 页面")
 
             # 如果需要获取Cookie
             if need_cookie:
-                # 获取 Cookie
+                # 获取所有Cookie
                 cookies = context.cookies()
+
+                # 尝试获取sw110xy cookie
                 sw110xy_cookie = next((c for c in cookies if c['name'] == 'sw110xy'), None)
+
+                # 获取CloudFlare cookie
                 cf_clearance_cookie = next((c for c in cookies if c['name'] == 'cf_clearance'), None)
 
+                # 如果找不到sw110xy cookie，尝试获取其他可能的会话cookie
                 if not sw110xy_cookie:
-                    raise Exception('sw110xy cookie not found')
+                    # 尝试获取其他常见的会话cookie
+                    session_cookies = [
+                        next((c for c in cookies if c['name'] == 'PHPSESSID'), None),
+                        next((c for c in cookies if c['name'] == 'laravel_session'), None),
+                        next((c for c in cookies if c['name'] == 'session'), None),
+                        next((c for c in cookies if 'session' in c['name'].lower()), None)
+                    ]
 
-                cookie_value = f"{sw110xy_cookie['name']}={sw110xy_cookie['value']};1"
+                    # 使用第一个非None的会话cookie
+                    session_cookie = next((c for c in session_cookies if c is not None), None)
+
+                    if session_cookie:
+                        print(f"未找到sw110xy cookie，使用替代会话cookie: {session_cookie['name']}")
+                        cookie_value = f"{session_cookie['name']}={session_cookie['value']};1"
+                    else:
+                        # 如果没有找到任何会话cookie，尝试使用所有cookie
+                        print("未找到任何会话cookie，使用所有cookie")
+                        cookie_value = "; ".join([f"{c['name']}={c['value']}" for c in cookies])
+                else:
+                    cookie_value = f"{sw110xy_cookie['name']}={sw110xy_cookie['value']};1"
+
                 print(f"账号 {account['username']} 登录成功，Cookie: {cookie_value}")
+
+                # 截图保存登录成功状态
+                page.screenshot(path=f"login_success_{account['username']}.png")
 
                 return context, cookie_value, cf_clearance_cookie
             else:
@@ -235,75 +364,208 @@ def login_and_get_cookie(account, browser, max_retries=2):  # 增加重试次数
                 return context, None, None
         except PlaywrightTimeoutError as e:
             print(f"账号 {account['username']} 登录尝试 {attempt + 1} 失败: {str(e)}")
+            # 保存超时时的截图
+            try:
+                page.screenshot(path=f"login_timeout_{account['username']}_{attempt}.png")
+            except:
+                pass
+
             if attempt < max_retries - 1:
                 time.sleep(5)
                 continue
             raise
         except Exception as e:
             print(f"账号 {account['username']} 登录失败: {str(e)}")
+            # 保存失败时的截图
+            try:
+                page.screenshot(path=f"login_error_{account['username']}_{attempt}.png")
+            except:
+                pass
+
+            if attempt < max_retries - 1:
+                time.sleep(5)
+                continue
             raise
         finally:
             page.close()
 
-def renew_vps(account, context, cookie, cf_clearance_cookie=None, max_retries=2):
+def renew_vps(account, context, cookie, cf_clearance_cookie=None, max_retries=3):
     page = context.new_page()
 
     try:
         for attempt in range(max_retries):
             try:
-                # 导航到续期页面
+                # 导航到服务器列表页面
                 print(f"尝试 {attempt + 1}/{max_retries}: 导航到 {account['site']}/server/lxc 页面...")
-                page.goto(f"{account['site']}/server/lxc", wait_until='load', timeout=120000)  # 增加超时时间
+                page.goto(f"{account['site']}/server/lxc", wait_until='networkidle', timeout=120000)  # 使用networkidle等待所有网络请求完成
 
-                # 等待一段时间，确保页面加载完成
-                print(f"等待3秒，确保页面加载完成...")
-                time.sleep(3)
+                # 等待页面完全加载，处理可能的CloudFlare挑战
+                print(f"等待5秒，确保页面完全加载并处理CloudFlare挑战...")
+                time.sleep(5)
 
-                # 准备续期请求
+                # 检查是否遇到CloudFlare挑战页面
+                if page.content().find("Just a moment") > -1 or page.content().find("Checking your browser") > -1:
+                    print("检测到CloudFlare挑战页面，等待挑战完成...")
+                    # 等待更长时间让CloudFlare挑战完成
+                    for i in range(12):  # 最多等待60秒
+                        time.sleep(5)
+                        if page.content().find("Just a moment") == -1 and page.content().find("Checking your browser") == -1:
+                            print("CloudFlare挑战已完成，继续执行...")
+                            break
+
+                    # 如果仍然在CloudFlare页面，尝试刷新
+                    if page.content().find("Just a moment") > -1 or page.content().find("Checking your browser") > -1:
+                        print("CloudFlare挑战仍未完成，尝试刷新页面...")
+                        page.reload(wait_until='networkidle', timeout=120000)
+                        time.sleep(5)
+
+                # 获取续期URL
                 renew_url = f"{account['site']}{account['renewApi']}"
                 print(f"账号 {account['username']} 的续期URL: {renew_url}")
 
-                # 使用Playwright的内置请求功能
-                print(f"正在为账号 {account['username']} 提交续期请求...")
+                # 方法1: 直接访问续期页面并点击续期按钮
+                try:
+                    print(f"方法1: 直接访问续期页面 {renew_url}")
+                    page.goto(renew_url, wait_until='networkidle', timeout=120000)
 
-                # 设置请求头
-                headers = {
-                    'Content-Type': 'application/x-www-form-urlencoded',
-                    'X-Requested-With': 'XMLHttpRequest'
-                }
+                    # 等待页面加载
+                    time.sleep(5)
 
-                # 设置请求体
-                data = {
-                    'month': '1',
-                    'coupon_id': '0',
-                    'submit': '1'
-                }
+                    # 检查是否遇到CloudFlare挑战页面
+                    if page.content().find("Just a moment") > -1 or page.content().find("Checking your browser") > -1:
+                        print("续期页面遇到CloudFlare挑战，等待挑战完成...")
+                        # 等待更长时间让CloudFlare挑战完成
+                        for i in range(12):  # 最多等待60秒
+                            time.sleep(5)
+                            if page.content().find("Just a moment") == -1 and page.content().find("Checking your browser") == -1:
+                                print("CloudFlare挑战已完成，继续执行...")
+                                break
 
-                # 发送POST请求
-                response = page.request.post(
-                    renew_url,
-                    headers=headers,
-                    form=data
-                )
+                    # 查找并点击续期按钮
+                    renew_button_found = False
 
-                # 获取响应
-                status = response.status
-                response_text = response.text()
+                    # 尝试多种可能的续期按钮选择器
+                    selectors = [
+                        'button:has-text("续期")',
+                        'a:has-text("续期")',
+                        'button.btn-renew',
+                        'a.btn-renew',
+                        'button[type="submit"]:has-text("续期")',
+                        'input[type="submit"][value="续期"]',
+                        'button.btn-primary:has-text("续期")',
+                        'a.btn-primary:has-text("续期")'
+                    ]
 
-                print(f"账号 {account['username']} 续期响应状态码: {status}")
-                print(f"账号 {account['username']} 续期响应内容: {response_text}")
+                    for selector in selectors:
+                        if page.locator(selector).count() > 0:
+                            print(f"找到续期按钮: {selector}")
+                            # 点击前截图
+                            page.screenshot(path=f"before_click_{account['username']}.png")
+                            page.locator(selector).first.click()
+                            renew_button_found = True
+                            # 等待页面响应
+                            time.sleep(3)
+                            # 点击后截图
+                            page.screenshot(path=f"after_click_{account['username']}.png")
+                            break
 
-                # 如果请求成功，返回响应文本
-                if status == 200:
-                    return response_text
-                else:
-                    print(f"续期请求返回非200状态码: {status}")
+                    if not renew_button_found:
+                        print("未找到续期按钮，尝试方法2...")
+                        raise Exception("未找到续期按钮")
+
+                    # 检查是否有确认对话框
+                    confirm_selectors = [
+                        'button:has-text("确定")',
+                        'button:has-text("确认")',
+                        'button.btn-primary:has-text("确定")',
+                        'button.btn-confirm',
+                        'button[type="submit"]:has-text("确定")'
+                    ]
+
+                    for selector in confirm_selectors:
+                        if page.locator(selector).count() > 0:
+                            print(f"找到确认按钮: {selector}")
+                            page.locator(selector).first.click()
+                            time.sleep(3)
+                            break
+
+                    # 检查续期结果
+                    success_texts = ["续期成功", "已续期", "操作成功", "success"]
+                    page_content = page.content().lower()
+
+                    success = False
+                    for text in success_texts:
+                        if text.lower() in page_content:
+                            success = True
+                            print(f"检测到成功信息: '{text}'")
+                            break
+
+                    if success:
+                        return "续期成功"
+                    else:
+                        # 如果页面上没有成功信息，尝试方法2
+                        print("未检测到续期成功信息，尝试方法2...")
+                        raise Exception("未检测到续期成功信息")
+
+                except Exception as e:
+                    print(f"方法1失败: {str(e)}，尝试方法2...")
+
+                # 方法2: 使用API请求续期
+                try:
+                    print(f"方法2: 使用API请求续期")
+                    # 先导航到服务器列表页面建立会话
+                    page.goto(f"{account['site']}/server/lxc", wait_until='networkidle', timeout=120000)
+                    time.sleep(3)
+
+                    # 设置请求头
+                    headers = {
+                        'Content-Type': 'application/x-www-form-urlencoded',
+                        'X-Requested-With': 'XMLHttpRequest',
+                        'Referer': f"{account['site']}/server/lxc",
+                        'Origin': account['site'],
+                        'User-Agent': page.evaluate('() => navigator.userAgent')
+                    }
+
+                    # 设置请求体
+                    data = {
+                        'month': '1',
+                        'coupon_id': '0',
+                        'submit': '1'
+                    }
+
+                    # 发送POST请求
+                    print(f"正在为账号 {account['username']} 提交续期API请求...")
+                    response = page.request.post(
+                        renew_url,
+                        headers=headers,
+                        form=data
+                    )
+
+                    # 获取响应
+                    status = response.status
+                    response_text = response.text()
+
+                    print(f"账号 {account['username']} 续期响应状态码: {status}")
+                    print(f"账号 {account['username']} 续期响应内容: {response_text}")
+
+                    # 如果请求成功，返回响应文本
+                    if status == 200:
+                        return response_text
+                    else:
+                        print(f"续期请求返回非200状态码: {status}")
+                        if attempt < max_retries - 1:
+                            print(f"等待5秒后重试...")
+                            time.sleep(5)
+                            continue
+                        else:
+                            raise Exception(f"续期请求失败，状态码: {status}")
+                except Exception as e:
+                    print(f"方法2失败: {str(e)}")
                     if attempt < max_retries - 1:
                         print(f"等待5秒后重试...")
                         time.sleep(5)
                         continue
-                    else:
-                        raise Exception(f"续期请求失败，状态码: {status}")
+                    raise
             except Exception as e:
                 print(f"续期尝试 {attempt + 1} 失败: {str(e)}")
                 if attempt < max_retries - 1:
@@ -429,7 +691,24 @@ def main():
                 need_cookie = account.get('needCookie', need_renew)
 
                 print(f"为账号 {account['username']} 启动新的浏览器实例...")
-                browser = p.chromium.launch(headless=True, args=['--no-sandbox', '--disable-setuid-sandbox'])
+                # 使用更多的浏览器参数，以更好地处理CloudFlare挑战
+                browser = p.chromium.launch(
+                    headless=True,
+                    args=[
+                        '--no-sandbox',
+                        '--disable-setuid-sandbox',
+                        '--disable-blink-features=AutomationControlled',
+                        '--disable-web-security',
+                        '--disable-features=IsolateOrigins,site-per-process',
+                        '--ignore-certificate-errors',
+                        '--disable-extensions',
+                        '--disable-dev-shm-usage',
+                        '--disable-accelerated-2d-canvas',
+                        '--no-first-run',
+                        '--no-zygote',
+                        '--disable-gpu'
+                    ]
+                )
 
                 # 登录
                 context, cookie, cf_clearance_cookie = login_and_get_cookie(account, browser)
