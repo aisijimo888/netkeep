@@ -301,14 +301,25 @@ def login_and_get_cookie(account, browser, max_retries=2):  # 减少重试次数
                 except Exception as e:
                     print(f"备用方式填写表单也失败: {str(e)}")
 
-            # 提交登录表单并立即开始轮询
-            print(f"提交登录表单并立即开始轮询...")
+            # 提交登录表单
+            print(f"提交登录表单...")
 
             # 使用netkeep1.py的简单直接的登录方式
             try:
                 # 直接点击提交按钮
                 print(f"点击登录按钮...")
                 page.click('button[type="submit"]')
+
+                # 等待页面开始加载
+                try:
+                    print(f"等待页面加载...")
+                    page.wait_for_load_state('domcontentloaded', timeout=30000)
+                except Exception as e:
+                    print(f"等待页面加载时出错: {str(e)}，继续执行...")
+
+                # 添加固定等待时间
+                print(f"等待3秒，确保登录完成...")
+                time.sleep(3)
             except Exception as e:
                 print(f"直接点击登录按钮失败: {str(e)}")
                 print("尝试使用备用方式提交表单...")
@@ -318,6 +329,17 @@ def login_and_get_cookie(account, browser, max_retries=2):  # 减少重试次数
                     # 尝试使用JavaScript提交表单
                     page.evaluate('() => { const form = document.querySelector("form"); if (form) form.submit(); }')
                     print("已通过JavaScript提交表单")
+
+                    # 等待页面开始加载
+                    try:
+                        print(f"等待页面加载...")
+                        page.wait_for_load_state('domcontentloaded', timeout=30000)
+                    except Exception as e:
+                        print(f"等待页面加载时出错: {str(e)}，继续执行...")
+
+                    # 添加固定等待时间
+                    print(f"等待3秒，确保登录完成...")
+                    time.sleep(3)
                 except Exception as js_error:
                     print(f"通过JavaScript提交表单失败: {str(js_error)}")
 
@@ -333,11 +355,22 @@ def login_and_get_cookie(account, browser, max_retries=2):  # 减少重试次数
                             if page.locator(selector).count() > 0:
                                 page.click(selector)
                                 print(f"已点击登录按钮: {selector}")
+
+                                # 等待页面开始加载
+                                try:
+                                    print(f"等待页面加载...")
+                                    page.wait_for_load_state('domcontentloaded', timeout=30000)
+                                except Exception as e:
+                                    print(f"等待页面加载时出错: {str(e)}，继续执行...")
+
+                                # 添加固定等待时间
+                                print(f"等待3秒，确保登录完成...")
+                                time.sleep(3)
                                 break
                         except Exception:
                             continue
 
-            # 立即开始轮询，不等待页面加载
+            # 开始轮询检测登录状态
             print(f"开始轮询检测登录状态...")
             start_time = time.time()
             max_wait_time = 30  # 最多等待30秒，比netkeep1.py的等待时间长，但比原来的60秒短
@@ -759,6 +792,103 @@ def renew_vps(account, context, cookie, cf_clearance_cookie=None, max_retries=2)
                 renew_url = f"{account['site']}{account['renewApi']}"
                 print(f"账号 {account['username']} 的续期URL: {renew_url}")
 
+                # 方法2: 使用API请求续期（优先使用）
+                try:
+                    # 不输出详细的API请求信息
+
+                    # 构建API请求头
+                    headers = {
+                        'Cookie': cookie,
+                        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+                        'Referer': f"{account['site']}/server/lxc",
+                        'Accept': 'application/json, text/javascript, */*; q=0.01',
+                        'X-Requested-With': 'XMLHttpRequest',
+                        'Content-Type': 'application/x-www-form-urlencoded'
+                    }
+
+                    # 如果有CloudFlare cookie，添加到请求头
+                    if cf_clearance_cookie:
+                        headers['Cookie'] += f"; cf_clearance={cf_clearance_cookie['value']}"
+
+                    # 构建请求参数
+                    data = {}
+
+                    # 检查账号配置中是否有renewBody参数
+                    if 'renewBody' in account and account['renewBody']:
+                        # 解析用户提供的body参数字符串 (格式: "month=1&coupon_id=0&submit=1")
+                        try:
+                            body_params = account['renewBody'].split('&')
+                            for param in body_params:
+                                if '=' in param:
+                                    key, value = param.split('=', 1)
+                                    # 尝试将数字字符串转换为数字
+                                    if value.isdigit():
+                                        data[key] = int(value)
+                                    else:
+                                        data[key] = value
+                            # 不输出详细的参数信息
+                        except Exception as e:
+                            print(f"解析续期参数时出错: {str(e)}，使用默认参数")
+                            # 使用默认参数
+                            data['month'] = 1
+                            data['coupon_id'] = 0
+                            data['submit'] = 1
+                    else:
+                        print("警告: 未在配置中找到renewBody参数，使用默认参数")
+                        # 尝试从renewApi中提取ID
+                        try:
+                            import re
+                            id_match = re.search(r'/(\d+)/renew', account['renewApi'])
+                            account_id = id_match.group(1) if id_match else None
+                            if account_id:
+                                data['id'] = account_id
+                        except:
+                            pass
+
+                        # 使用默认参数
+                        data['month'] = 1
+                        data['coupon_id'] = 0
+                        data['submit'] = 1
+
+                    # 发送API请求 (使用POST方法) - 不输出详细信息
+                    response = requests.post(renew_url, headers=headers, data=data)
+
+                    # 检查响应
+                    if response.status_code == 200:
+                        try:
+                            # 尝试解析JSON响应
+                            result = response.json()
+
+                            # 检查响应中是否包含成功指示
+                            if 'code' in result:
+                                if result['code'] == 0 or result['code'] == 1:
+                                    # 不输出详细的API响应信息
+                                    return result
+                                else:
+                                    print(f"API续期返回非成功状态码: {result}")
+                                    raise Exception(f"API续期失败: {result}")
+                            elif 'success' in result and result['success']:
+                                # 不输出详细的API响应信息
+                                return result
+                            else:
+                                print(f"API续期响应不包含成功指示")
+                                raise Exception(f"API续期响应不包含成功指示")
+                        except json.JSONDecodeError:
+                            # 如果响应不是JSON格式，检查是否包含成功文本
+                            response_text = response.text
+
+                            if "续期成功" in response_text or "已续期" in response_text or "操作成功" in response_text:
+                                # 不输出详细的API响应信息
+                                return {"success": True, "text": response_text}
+                            else:
+                                print(f"API续期响应不包含成功文本: {response_text}")
+                                raise Exception(f"API续期响应不包含成功文本")
+                    else:
+                        print(f"API续期请求失败，状态码: {response.status_code}")
+                        raise Exception(f"API续期请求失败，状态码: {response.status_code}")
+                except Exception as e:
+                    print(f"方法2失败: {str(e)}，尝试方法1...")
+
                 # 方法1: 直接访问续期页面并点击续期按钮
                 try:
                     print(f"方法1: 直接访问续期页面 {renew_url}")
@@ -1083,18 +1213,9 @@ def renew_vps(account, context, cookie, cf_clearance_cookie=None, max_retries=2)
                         raise Exception("未检测到续期成功信息")
 
                 except Exception as e:
-                    print(f"方法1失败: {str(e)}，尝试方法2...")
+                    print(f"方法1失败: {str(e)}")
 
-                # 方法2: 使用API请求续期（暂时禁用，但保留代码以便于调试）
-                try:
-                    print(f"方法2: API续期功能已暂时禁用，仅测试按钮点击续期")
-                    # 返回一个模拟的成功结果，使用与方法1相同的返回格式
-                    return {"success": True, "text": "按钮点击续期测试完成，API续期功能已暂时禁用"}
-
-                except Exception as e:
-                    print(f"方法2失败: {str(e)}")
-
-                    # 如果方法2也失败，尝试重试
+                    # 如果方法1失败，尝试重试
                     if attempt < max_retries - 1:
                         print(f"等待5秒后重试...")
                         time.sleep(5)

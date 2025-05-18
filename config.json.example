@@ -6,13 +6,25 @@
 # TELEGRAM_BOT_TOKEN=your_bot_token_here
 # TELEGRAM_CHAT_ID=your_chat_id_here
 
-# 账号配置（必填）
-# 格式为JSON数组，每个账号包含site, loginApi, renewApi, username, password字段
+# 登录配置API（必填）
+# 格式为JSON数组，每个账号必须包含site, username, password字段
+
+
+# 续期API（选填）
+# renewApi参数为续期API路径（可选，如果不需要续期则省略）
+# renewBody参数为续期请求的body参数（可选，格式为"key1=value1&key2=value2&key3=value3"）
+
+
+
+
+示例如下，https://freecloud.ltd需要登录及续期，https://freecloud.ltd只需登录
+
 NETKEEP_ACCOUNTS=[
   {
     "site": "https://freecloud.ltd",
     "loginApi": "/login",
     "renewApi": "/server/detail/1234/renew",
+    "renewBody": "month=1&coupon_id=0&submit=1",
     "username": "user1",
     "password": "password1"
   },
@@ -20,6 +32,7 @@ NETKEEP_ACCOUNTS=[
     "site": "https://freecloud.ltd",
     "loginApi": "/login",
     "renewApi": "/server/detail/5678/renew",
+    "renewBody": "month=1&coupon_id=0&submit=1",
     "username": "user2",
     "password": "password2"
   },
