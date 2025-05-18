@@ -2,7 +2,7 @@ name: NetKeep自动登录
 
 on:
   schedule:
-    - cron: '0 0 */2 * *'  # 每48小时执行一次，在UTC时间0点运行
+    - cron: '0 0 */3 * *'  # 每72小时执行一次，在UTC时间0点运行
   workflow_dispatch:  # 允许手动触发工作流
 
 jobs:
@@ -23,49 +23,20 @@ jobs:
         python -m pip install --upgrade pip
         pip install -r requirements.txt
         python -m playwright install chromium
-        # 安装调试工具
-        pip install pytest-playwright
 
-    - name: 创建调试日志目录
-      run: |
-        mkdir -p debug_logs
-
-    - name: 运行NetKeep脚本（调试模式）
+    - name: 运行NetKeep脚本
       env:
         # 从GitHub仓库的Variables或Secrets中获取配置
         NETKEEP_ACCOUNTS: ${{ vars.NETKEEP_ACCOUNTS || secrets.NETKEEP_ACCOUNTS }}
         # Telegram通知配置（可选）
         TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
         TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-        # 调试环境变量
-        PWDEBUG: 1
-        DEBUG: pw:api
       run: |
-        # 启用详细日志输出
-        set -x
+        # 运行脚本
+        python netkeep.py
 
-        # 运行脚本并保存详细日志
-        python netkeep.py 2>&1 | tee debug_logs/netkeep_run.log
-        # 列出所有生成的调试日志文件
-        echo "===== 调试日志文件 ====="
-        ls -la debug_logs/
-
-
-
-    - name: 上传调试日志
-      if: always()  # 无论前一步是否成功都执行
-      uses: actions/upload-artifact@v3
-      with:
-        name: debug-logs
-        path: debug_logs/
-        retention-days: 5
 
     - name: 处理运行结果
       if: always()  # 无论前一步是否成功都执行
       run: |
         echo "脚本执行完成，查看上方日志获取详细信息"
-        echo "调试截图和日志已上传为工作流构件，可在Actions页面下载查看"
-
-        # 显示最后100行日志
-        echo "===== 最后100行日志 ====="
-        tail -n 100 debug_logs/netkeep_run.log
