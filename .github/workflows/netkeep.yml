@@ -23,18 +23,62 @@ jobs:
         python -m pip install --upgrade pip
         pip install -r requirements.txt
         python -m playwright install chromium
+        # 安装调试工具
+        pip install pytest-playwright
 
-    - name: 运行NetKeep脚本
+    - name: 创建调试目录
+      run: |
+        mkdir -p debug_screenshots
+        mkdir -p debug_logs
+
+    - name: 运行NetKeep脚本（调试模式）
       env:
         # 从GitHub仓库的Variables或Secrets中获取配置
         NETKEEP_ACCOUNTS: ${{ vars.NETKEEP_ACCOUNTS || secrets.NETKEEP_ACCOUNTS }}
         # Telegram通知配置（可选）
         TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
         TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        # 调试环境变量
+        PWDEBUG: 1
+        DEBUG: pw:api
       run: |
-        python netkeep.py
+        # 启用详细日志输出
+        set -x
+        
+        # 运行脚本并保存详细日志
+        python netkeep.py 2>&1 | tee debug_logs/netkeep_run.log
+        
+        # 移动所有截图到调试目录
+        mv *.png debug_screenshots/ 2>/dev/null || true
+        
+        # 列出所有生成的调试文件
+        echo "===== 调试截图文件 ====="
+        ls -la debug_screenshots/
+        echo "===== 调试日志文件 ====="
+        ls -la debug_logs/
+
+    - name: 上传调试截图
+      if: always()  # 无论前一步是否成功都执行
+      uses: actions/upload-artifact@v3
+      with:
+        name: debug-screenshots
+        path: debug_screenshots/
+        retention-days: 5
+
+    - name: 上传调试日志
+      if: always()  # 无论前一步是否成功都执行
+      uses: actions/upload-artifact@v3
+      with:
+        name: debug-logs
+        path: debug_logs/
+        retention-days: 5
 
     - name: 处理运行结果
       if: always()  # 无论前一步是否成功都执行
       run: |
         echo "脚本执行完成，查看上方日志获取详细信息"
+        echo "调试截图和日志已上传为工作流构件，可在Actions页面下载查看"
+        
+        # 显示最后100行日志
+        echo "===== 最后100行日志 ====="
+        tail -n 100 debug_logs/netkeep_run.log
