@@ -2,7 +2,7 @@ name: NetKeep自动登录
 
 on:
   schedule:
-    - cron: '0 0 */3 * *'  # 每72小时执行一次，在UTC时间0点运行
+#    - cron: '0 0 */3 * *'  # 每72小时执行一次，在UTC时间0点运行
   workflow_dispatch:  # 允许手动触发工作流
 
 jobs:
